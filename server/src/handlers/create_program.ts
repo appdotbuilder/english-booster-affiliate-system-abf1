@@ -1,19 +1,31 @@
+import { db } from '../db';
+import { programsTable } from '../db/schema';
 import { type CreateProgramInput, type Program } from '../schema';
 
 export const createProgram = async (input: CreateProgramInput): Promise<Program> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating a new English Booster program and persisting it in the database.
-    // Should validate program details and set appropriate defaults.
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+  try {
+    // Insert program record
+    const result = await db.insert(programsTable)
+      .values({
         name: input.name,
         description: input.description,
         category: input.category,
         location: input.location,
-        price: input.price,
-        duration_weeks: input.duration_weeks,
-        is_active: input.is_active,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as Program);
+        price: input.price.toString(), // Convert number to string for numeric column
+        duration_weeks: input.duration_weeks, // Integer column - no conversion needed
+        is_active: input.is_active // Boolean column - no conversion needed
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const program = result[0];
+    return {
+      ...program,
+      price: parseFloat(program.price) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Program creation failed:', error);
+    throw error;
+  }
 };

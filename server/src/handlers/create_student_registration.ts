@@ -1,12 +1,52 @@
+import { db } from '../db';
+import { studentRegistrationsTable, affiliatesTable, programsTable } from '../db/schema';
 import { type CreateStudentRegistrationInput, type StudentRegistration } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
 export const createStudentRegistration = async (input: CreateStudentRegistrationInput): Promise<StudentRegistration> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating a new student registration through an affiliate referral.
-    // Should validate referral code, calculate commission amount based on program price and affiliate rate,
-    // and set initial status to 'pending' for admin confirmation.
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+  try {
+    // Validate that the affiliate exists and has the matching referral code
+    const affiliate = await db.select()
+      .from(affiliatesTable)
+      .where(
+        and(
+          eq(affiliatesTable.id, input.affiliate_id),
+          eq(affiliatesTable.referral_code, input.referral_code)
+        )
+      )
+      .execute();
+
+    if (affiliate.length === 0) {
+      throw new Error('Invalid affiliate ID or referral code');
+    }
+
+    // Check that the affiliate is approved
+    if (affiliate[0].status !== 'approved') {
+      throw new Error('Affiliate is not approved for registrations');
+    }
+
+    // Validate that the program exists and is active
+    const program = await db.select()
+      .from(programsTable)
+      .where(eq(programsTable.id, input.program_id))
+      .execute();
+
+    if (program.length === 0) {
+      throw new Error('Program not found');
+    }
+
+    if (!program[0].is_active) {
+      throw new Error('Program is not active');
+    }
+
+    // Calculate commission amount based on program price and affiliate commission rate
+    const programPrice = parseFloat(program[0].price);
+    const commissionRate = parseFloat(affiliate[0].commission_rate);
+    const commissionAmount = programPrice * commissionRate;
+
+    // Insert the student registration
+    const result = await db.insert(studentRegistrationsTable)
+      .values({
         affiliate_id: input.affiliate_id,
         program_id: input.program_id,
         student_name: input.student_name,
@@ -15,11 +55,23 @@ export const createStudentRegistration = async (input: CreateStudentRegistration
         student_address: input.student_address,
         referral_code: input.referral_code,
         status: 'pending',
-        registration_fee: 0, // Should be fetched from program price
-        commission_amount: 0, // Should be calculated from program price * affiliate commission rate
+        registration_fee: programPrice.toString(),
+        commission_amount: commissionAmount.toString(),
         confirmed_by: null,
-        confirmed_at: null,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as StudentRegistration);
+        confirmed_at: null
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const registration = result[0];
+    return {
+      ...registration,
+      registration_fee: parseFloat(registration.registration_fee),
+      commission_amount: parseFloat(registration.commission_amount)
+    };
+  } catch (error) {
+    console.error('Student registration creation failed:', error);
+    throw error;
+  }
 };
